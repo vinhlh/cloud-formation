@@ -2,5 +2,5 @@
 A minimal Cloud Formation template for ECS Container Instance (Docker)
 
 
-# Refs
-http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/sample-templates-services-us-west-2.html
+# Create a stack
+`aws cloudformation create-stack --stack-name VinhLH --template-body file:///your-path/cloud-formation/minimal-docker-container-instance.template`
