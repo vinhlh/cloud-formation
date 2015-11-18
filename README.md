@@ -1,5 +1,13 @@
-# cloud-formation
-A minimal Cloud Formation template for ECS Container Instance (Docker)
+# graphite-cloud-formation
+A CloudFormation template for Graphite + Statsd.
+
+## Features
+- Use Docker: https://github.com/hopsoft/docker-graphite-statsd.
+- Private Docker Hub.
+- Backup with a Snapshot, restoring from a Snapshot.
+- htpasswd.
+- Add domain from Route 53.
+- Add existing Security Groups, SubnetIds.
 
 
 ## Create a stack
