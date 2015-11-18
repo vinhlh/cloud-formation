@@ -1,0 +1,437 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+
+    "Description": "Graphite Docker Cloud Formation Template",
+
+    "Parameters": {
+
+        "KeyName": {
+            "Description"          : "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+            "Type"                 : "AWS::EC2::KeyPair::KeyName",
+            "ConstraintDescription": "must be the name of an existing EC2 KeyPair.",
+            "Default"              : "vinh"
+        },
+
+        "InstanceType": {
+            "Description"          : "Container Instance type",
+            "Type"                 : "String",
+            "Default"              : "t1.micro",
+            "AllowedValues"        : [
+                "t1.micro",
+                "m3.medium",
+                "m3.large",
+                "m3.xlarge",
+                "m3.2xlarge",
+                "m1.small",
+                "m1.medium",
+                "m1.large",
+                "m1.large",
+                "c3.large",
+                "c3.xlarge",
+                "c3.2xlarge",
+                "c3.4xlarge",
+                "c3.8xlarge",
+                "c1.medium",
+                "c1.xlarge",
+                "m2.xlarge",
+                "m2.2xlarge",
+                "m2.4xlarge",
+                "hs1.8xlarge"
+            ],
+            "ConstraintDescription": "must be a valid EC2 instance type."
+        },
+
+        "VolumeSize": {
+            "Description": "Storage size (GB)",
+            "Type"       : "Number",
+            "Default"    : 100,
+            "ConstraintDescription": "must be a valid number."
+        },
+
+        "HtpasswdString": {
+            "Description": ".htpasswd String",
+            "Type"       : "String",
+            "Default"    : "<htpasswd>"
+        },
+
+        "GraphiteHostedZoneName": {
+            "Description": "Hosted Zone Name",
+            "Type"       : "String",
+            "Default"    : "core.zalora.io."
+        },
+
+        "GraphiteSubDomain": {
+            "Description": "Sub Domain Name",
+            "Type"       : "String",
+            "Default"    : "graphite"
+        },
+
+        "GraphiteDockerRepository": {
+            "Description": "Docker Repository",
+            "Type"       : "String",
+            "Default"    : "zalora/graphite-web"
+        },
+
+        "GraphiteElasticIP": {
+            "Description": "Elastic IP",
+            "Type"       : "String",
+            "Default"    : "54.255.150.65"
+        },
+
+        "DockerHubAuthToken": {
+            "Description": "Docker Hub Auth Token",
+            "Type"       : "String",
+            "Default"    : "<docker-auth-token>"
+        },
+
+        "DockerHubEmail": {
+            "Description": "Docker Hub Email",
+            "Type"       : "String",
+            "Default"    : "hung.vjnh@gmail.com"
+        },
+
+        "GraphiteSnapshotId": {
+            "Description": "Snapshot Id",
+            "Type"       : "String",
+            "Default"    : ""
+        },
+
+        "S3BucketPath" : {
+            "Description": "Bucket path on where the DM configurations are placed.",
+            "Type": "String",
+            "Default": "s3://zalora-graphite",
+            "ConstraintDescription": "must be a valid bucket path."
+        },
+
+        "SecurityGroup": {
+            "Description": "Security groups that can be used to access the EC2 instances",
+            "Type": "List<AWS::EC2::SecurityGroup::Id>",
+            "ConstraintDescription": "must be list of EC2 security group ids",
+            "Default": "sg-88ae6ced"
+        },
+
+        "SubnetId": {
+            "Description": "VPC subnet IDs",
+            "Type": "AWS::EC2::Subnet::Id",
+            "ConstraintDescription": "must be list of EC2 subnet ids",
+            "Default": "subnet-93050be7"
+        },
+
+        "InstanceRole" : {
+            "Description" : "Name of an existing IAM Role to enable S3 access to the ec2 instances",
+            "Type" : "String",
+            "Default" : "s3",
+            "ConstraintDescription" : "must be a valid EC2 Role type."
+        }
+
+    },
+
+    "Mappings": {
+
+    },
+
+    "Conditions": {
+
+        "UseSnapshot": {
+            "Fn::Not": [{
+                "Fn::Equals": [
+                    {"Ref": "GraphiteSnapshotId"},
+                    ""
+                ]
+            }]
+        }
+
+    },
+
+    "Resources": {
+
+        "IPAssoc" : {
+            "Type" : "AWS::EC2::EIPAssociation",
+            "Properties" : {
+                "InstanceId" : {
+                    "Ref" : "GraphiteInstance"
+                },
+                "EIP" : {
+                    "Ref": "GraphiteElasticIP"
+                }
+            }
+        },
+
+        "GraphiteInstance": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Awesome Graphite - CloudFormation Stack"
+                    }
+                ],
+                "IamInstanceProfile": {
+                    "Ref": "InstanceRole"
+                },
+                "ImageId": "ami-e8f1c1ba",
+                "NetworkInterfaces": [{
+                    "AssociatePublicIpAddress": "true",
+                    "DeleteOnTermination": "true",
+                    "DeviceIndex": "0",
+                    "GroupSet": {"Ref": "SecurityGroup"},
+                    "SubnetId": {"Ref": "SubnetId"}
+                }],
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash -ex\n",
+                                "apt-get update\n",
+                                "apt-get -y install python-setuptools\n",
+                                "wget -P /root https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n",
+                                "mkdir -p /root/aws-cfn-bootstrap-latest\n",
+                                "tar xvfz /root/aws-cfn-bootstrap-latest.tar.gz --strip-components=1 -C /root/aws-cfn-bootstrap-latest\n",
+                                "easy_install /root/aws-cfn-bootstrap-latest/\n",
+                                "# Install the files and packages from the metadata\n",
+                                "/usr/local/bin/cfn-init -v ",
+                                "         --stack ", {"Ref": "AWS::StackName"},
+                                "         --resource GraphiteInstance ",
+                                "         --region ", {"Ref": "AWS::Region"},
+                                " || error_exit 'Failed to run cfn-init.'\n"
+                            ]
+                        ]
+                    }
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "configSets": {
+                        "default": [
+                            "MountVolume",
+                            "SetupDependencies",
+                            "ManageFoldersAndPermissions",
+                            "RunContainers",
+                            "EnableNginxProxy"
+                        ]
+                    },
+                    "MountVolume": {
+                        "commands": {
+                            "mountEsbVolume": {
+                                "command": {"Fn::Join": ["", [
+                                    "#!/bin/bash\n",
+                                    "echo \"Defaults !requiretty\" >> /etc/sudoers\n",
+                                    {
+                                        "Fn::If": [
+                                            "UseSnapshot",
+                                            "",
+                                            "sudo mkfs -t ext4 /dev/xvdf\n"
+                                        ]
+                                    },
+                                    "sudo mkdir /data\n",
+                                    "sudo mount /dev/xvdf /data\n",
+                                    "sudo echo \"/dev/xvdf /data ext4 defaults,nofail 0 2\" >> /etc/fstab\n"
+                                ]]}
+                            }
+                        }
+                    },
+                    "SetupDependencies": {
+                        "packages": {
+                            "apt": {
+                                "git"  : [],
+                                "nginx": [],
+                                "unzip": []
+                            }
+                        },
+
+                        "services" : {
+                            "sysvinit" : {
+                                "nginx" : {
+                                    "enabled" : "true",
+                                    "ensureRunning" : "true"
+                                }
+                            }
+                        },
+
+                        "commands": {
+                            "01_installDocker": {
+                                "command" : {"Fn::Join": ["", [
+                                    "curl -sSL https://get.docker.com/ | sh\n",
+                                    "usermod -aG docker ubuntu\n"
+                                ]]}
+                            },
+                            "02_installAwscli": {
+                                "command": {"Fn::Join": ["", [
+                                    "curl 'https://s3.amazonaws.com/aws-cli/awscli-bundle.zip' -o 'awscli-bundle.zip'\n",
+                                    "unzip awscli-bundle.zip\n",
+                                    "./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws\n"
+                                ]]}
+                            },
+                            "03_addDockerHubAuth": {
+                                "command": {"Fn::Join": ["", [
+                                    "mkdir /root/.docker/\n",
+
+                                    "echo '{\"auths\": {\"https://index.docker.io/v1/\":{\"auth\":\"",
+                                    {"Ref": "DockerHubAuthToken"},
+                                    "\",\"email\":\"",
+                                    {"Ref": "DockerHubEmail"},
+                                    "\"}}}'", " >> /root/.docker/config.json\n",
+
+                                    "chmod 700 /root/.docker\n",
+                                    "chmod 600 /root/.docker/config.json\n"
+                                ]]}
+                            },
+                            "04_getDataFromS3": {
+                                "command": {"Fn::Join": ["", [
+                                    "aws s3 cp ",
+                                    {"Ref": "S3BucketPath"},
+                                    "/nginx-proxy.conf /home/ubuntu/nginx-proxy.conf\n"
+                                ]]}
+                            },
+                            "05_pullDockerImages": {
+                                "command": {"Fn::Join": ["", [
+                                    "docker pull -a ",
+                                    {
+                                        "Ref": "GraphiteDockerRepository"
+                                    },
+                                    "\n"
+                                ]]}
+                            }
+                        }
+                    },
+                    "ManageFoldersAndPermissions": {
+                        "commands": {
+                            "01_createDirs": {
+                                "command": {"Fn::Join": ["", [
+                                    "mkdir -p /data/graphite/graphite/storage/whisper\n",
+                                    "mkdir -p /data/graphite/log/nginx\n",
+                                    "sudo chmod -R 666 /data/graphite/log\n"
+                                ]]}
+                            },
+                            "02_addGraphiteHtpasswd": {
+                                "command": {"Fn::Join": ["", [
+                                    "echo '",
+                                    {"Ref": "HtpasswdString"},
+                                    "' >> /data/graphite/.htpasswd"
+                                ]]}
+                            }
+                        }
+                    },
+                    "RunContainers": {
+                        "commands": {
+                            "01_runGraphite": {
+                                "command": {"Fn::Join": ["", [
+                                    "docker run -d --name graphite-web",
+                                    " --restart=always",
+                                    " -v /data/graphite/graphite/storage/whisper:/opt/graphite/storage/whisper",
+                                    " -v /data/graphite/log:/var/log",
+                                    " -v /data/graphite/.htpasswd:/etc/nginx/.htpasswd",
+                                    " -p 8080:80",
+                                    " -p 2003:2003",
+                                    " -p 8125:8125/udp",
+                                    " -p 8126:8126 ",
+                                    {
+                                        "Ref": "GraphiteDockerRepository"
+                                    },
+                                    "\n"
+                                ]]}
+                            }
+                        }
+                    },
+                    "EnableNginxProxy": {
+                        "commands": {
+                            "01_enableProxy": {
+                                "command": {"Fn::Join": ["", [
+                                    "cp /home/ubuntu/nginx-proxy.conf /etc/nginx/sites-available/proxy.conf\n",
+                                    "ln -s /etc/nginx/sites-available/proxy.conf /etc/nginx/sites-enabled/proxy.conf\n",
+                                    "sed -i -e 's/listen 80 default_server;/listen 80;/g' /etc/nginx/sites-available/default\n",
+                                    "service nginx reload\n"
+                                ]]}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+
+        "GraphiteVolume": {
+            "Type": "AWS::EC2::Volume",
+            "Properties": {
+                "Size": {
+                    "Ref": "VolumeSize"
+                },
+                "SnapshotId": {
+                    "Fn::If": [
+                        "UseSnapshot",
+                        {"Ref": "GraphiteSnapshotId"},
+                        {"Ref": "AWS::NoValue"}
+                    ]
+                },
+                "VolumeType": "gp2",
+                "AvailabilityZone": {
+                    "Fn::GetAtt": ["GraphiteInstance", "AvailabilityZone"]
+                }
+            },
+            "DeletionPolicy" : "Snapshot"
+        },
+
+        "MountPoint" : {
+            "Type": "AWS::EC2::VolumeAttachment",
+            "Properties": {
+                "InstanceId": {
+                    "Ref" : "GraphiteInstance"
+                },
+                "VolumeId": {
+                    "Ref" : "GraphiteVolume"
+                },
+                "Device": "/dev/sdf"
+            }
+        },
+
+        "DNSRecords": {
+            "Type": "AWS::Route53::RecordSetGroup",
+            "Properties": {
+                "HostedZoneName": {
+                    "Ref": "GraphiteHostedZoneName"
+                },
+                "RecordSets": [
+                    {
+                        "Name": {
+                            "Fn::Join": ["", [
+                                    {"Ref": "GraphiteSubDomain"},
+                                    ".",
+                                    {"Ref": "GraphiteHostedZoneName"}
+                                ]
+                            ]
+                        },
+                        "Type": "A",
+                        "TTL": "300",
+                        "ResourceRecords": [{"Ref": "GraphiteElasticIP"}]
+                    }
+                ]
+            }
+        }
+    },
+
+    "Outputs": {
+        "InstanceId": {
+            "Description": "InstanceId of the newly created EC2 instance",
+            "Value": {"Ref": "GraphiteInstance"}
+        },
+        "AZ": {
+            "Description": "Availability Zone of the newly created EC2 instance",
+            "Value": {"Fn::GetAtt": ["GraphiteInstance", "AvailabilityZone"]}
+        },
+        "PublicDNS": {
+            "Description": "Public DNSName of the newly created EC2 instance",
+            "Value": {"Fn::GetAtt": ["GraphiteInstance", "PublicDnsName"]}
+        },
+        "PublicIP": {
+            "Description": "Public IP address of the newly created EC2 instance",
+            "Value": {"Fn::GetAtt": ["GraphiteInstance", "PublicIp"]}
+        },
+        "ECSInstance": {
+            "Description": "Location for Amazon ECS Instance",
+            "Value": {"Fn::Join": ["", ["ssh ec2-user@", {"Fn::GetAtt": ["GraphiteInstance", "PublicDnsName"]}]]}
+        }
+    }
+}
